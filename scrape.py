@@ -3,35 +3,38 @@ import os
 import time
 import json
 import requests
+from retry_requests import retry
+#from urllib3 import Retry
 import pandas as pd
 from bs4 import BeautifulSoup
 
-def collect(url):
-    OK == False
-    while OK == True
-        result = requests.get(url)
-        if result.status_code == 200:
-            OK == True
-            return result
-        else:
-            OK == False        
-
-
 def fetch(url):
-    fail = True
-    while fail == True:
-        time.sleep(1)
-        result = requests.get(url)
-        status_code = result.status_code
-        if status_code == 200:
-            content = result.content
-            soup = BeautifulSoup(result.content, "html.parser")
-            fail = False
-            return soup
-        else:
-            print("Going to sleep")
-            time.sleep(2)
-            fail = True
+    session = requests.Session()
+    session = retry(session, retries=3, backoff_factor=1)
+    result = session.get(url)
+    if result:
+        soup = BeautifulSoup(result.content, "html.parser")
+        return soup
+    else:
+        None
+
+
+
+#def fetch(url):
+#    fail = True
+#    while fail == True:
+#        time.sleep(5)
+#        result = requests.get(url)
+#        status_code = result.status_code
+#        if status_code == 200:
+#            content = result.content
+#            soup = BeautifulSoup(result.content, "html.parser")
+#            fail = False
+#            return soup
+#        else:
+#            print("Going to sleep")
+#            time.sleep(60)
+#            fail = True
 
 def get_categories():
     top_category_url = "https://se.trustpilot.com/categories"
@@ -58,16 +61,16 @@ categories = get_categories()
 # make soup
 
 
-data = []
 
-if not os.path.exists("data"):
-    os.makedir("data")
+#if not os.path.exists("data"):
+#    os.makedir("data")
 
-for category in categories[0:1]:
+for category in categories[0]:
+    data = []
     category_dir = category.split("/")
     category_dir = category_dir[len(category_dir)-1]
-    if not os.path.exists("data/" + category_dir):
-        os.mkdir("data/" + category_dir)
+    #if not os.path.exists("data/" + category_dir):
+    #    os.mkdir("data/" + category_dir)
 
     category_specific_companies = []
     category_soup = fetch(category)
@@ -96,8 +99,6 @@ for category in categories[0:1]:
     for c in category_specific_companies:
         try:
             # Collect company data
-            if not os.path.exists("data/" + category_dir + "/" + c):
-                os.mkdir("data/" + category_dir + "/" + c)
             count_soup = fetch("https://se.trustpilot.com/review/" + c)
             count_tags = count_soup.find("script", {"id":"__NEXT_DATA__"})
             count_data = json.loads(count_tags.text)
@@ -105,6 +106,7 @@ for category in categories[0:1]:
             count_pages = count_tree["pageProps"]["filters"]["pagination"]["totalPages"]
         except AttributeError:
             print("COMPANY ERROR 2! There was an error with this company:" + c)
+            time.sleep(200)
         for page in range(1, count_pages):
             try:
                 time.sleep(1)
@@ -119,6 +121,7 @@ for category in categories[0:1]:
                     data.append((review, rating, category, c))
             except AttributeError:
                 print("PAGE ERROR! There was an error on this page: " + "https://se.trustpilot.com/review/" + c + "?page=" + str(page))
+                time.sleep(200)
 
-df = pd.DataFrame(data, columns=["review", "rating", "category", "company"])
-df.save_csv("ratings.csv")
+        df = pd.DataFrame(data, columns=["review", "rating", "category", "company"])
+        df.save_csv("data/" + category_dir + "ratings.csv")
