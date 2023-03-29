@@ -36,7 +36,9 @@ def get_categories():
 
 categories = get_categories()
 
-for category in categories[0:1]:
+# [0:1]
+# [1:2]
+for category in categories[1:2]:
     data = []
     category_dir = category.split("/")
     category_dir = category_dir[len(category_dir)-1]
@@ -78,30 +80,31 @@ for category in categories[0:1]:
             for page in range(1, count_pages):
                 print("\tProcessing reviews from following URL: https://se.trustpilot.com/review/" + c + "?page=" + str(page) +"&stars=3")
                 time.sleep(1)
-                review_soup = fetch("https://se.trustpilot.com/review/" + c + "?page=" + str(page) +"&stars=3") # Specify rating if important here
+                review_soup = fetch("https://se.trustpilot.com/review/" + c + "?page=" + str(page) +"&stars=3")
                 review_tags = review_soup.find("script", {"id":"__NEXT_DATA__"})
                 review_data = json.loads(review_tags.text)        
                 review_tree = review_data["props"]["pageProps"]
                 review_tree = review_tree["reviews"]
                 review = review_tree[0]["text"]
-                #print("\t\tReview no : ", str(reviews))
-                rating = review_tree[0]["rating"]
-                data = "\"" + review + "\", " + str(rating) + "\n"
-                print("\t\tWrote review to file.") 
-                category_file.write(data)
+                #rating = review_tree[0]["rating"]
+                rating = 3
+                data = review + "\t " + str(rating) + "\n"
+                #data = "\"" + review + "\"%%% " + str(rating) + "\n"
+                print("\t\tSaved review to list.") 
+                #category_file.write(data)
         elif count_pages == 1:
             # If it's just one page
-            print("\tProcessing reviews from following URL: https://se.trustpilot.com/review/" + c + "?page=1&stars=3")
+            print("\tProcessing reviews from following URL: https://se.trustpilot.com/review/" + c + "?stars=3")
             time.sleep(1)
-            review_soup = fetch("https://se.trustpilot.com/review/" + c + "?page=1&stars=3") # Specify rating if important here
+            review_soup = fetch("https://se.trustpilot.com/review/" + c + "?stars=3") # Specify rating if important here
             review_tags = review_soup.find("script", {"id":"__NEXT_DATA__"})
             review_data = json.loads(review_tags.text)        
             review_tree = review_data["props"]["pageProps"]
             review_tree = review_tree["reviews"]
             review = review_tree[0]["text"]
-            #print("\t\tReview no : ", str(reviews))
-            rating = review_tree[0]["rating"]
-            data = "\"" + review + "\", " + str(rating) + "\n"
+            rating = 3
+            #rating = review_tree[0]["rating"]
+            data = review + "\t" + str(rating) + "\n"
             print("\t\tWrote review to file.") 
             category_file.write(data)
         else:
