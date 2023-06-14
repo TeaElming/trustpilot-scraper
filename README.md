@@ -2,6 +2,6 @@
 
 Minimal Python scraper to download reviews from Trustpilot per rating (1-5 star system) for all companies in all categories from Trustpilot.
 
-Fully functional but sparsely documentet during the summer of 2023 but no promises are made going forward. Follow the print statements for modification and debugging. Some throttling is implemented and could probably be decreased for better run time.
+Fully functional during the summer of 2023 but sparsely documented. No promises made going forward. Default run results in a tsv file in dir ```data``` with columns text and rating. In this case, reviews will be collected for all Trustpilot categories and all companies regardless of star rating. This can, however, be easily modified in the code if you follow the print statements. Some throttling is implemented and could probably be decreased for better run time.
 
-Initially created to complete a sentiment analysis modelling dataset (ScandiSent) with neutral examples, represented by 3 star ratings, in order to create a multi-class sentiment model (neg/neu/pos).
+The scraper was initially created to complete the Scandinavian sentiment dataset [ScandiSent](https://github.com/timpal0l/ScandiSent) with neutral examples, represented here by 3 star ratings. This was done in order to create a robust multi-class transformer sentiment model in Swedish (with labels neg/neu/pos). Link to public model will be published shortly.
