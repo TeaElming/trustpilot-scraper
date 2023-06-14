@@ -30,8 +30,10 @@ def get_categories():
     """
     top_category_url = "https://se.trustpilot.com/categories"
     category_soup = fetch(top_category_url)
-    tags = category_soup.find("script", {"id":"__NEXT_DATA__"})
-    data = json.loads(tags.text)
+    data = parse_soup(category_soup)
+    #tags = category_soup.find("script", {"id":"__NEXT_DATA__"})
+    #data = json.loads(tags.text)
+
     tree = data["props"]
     all_categories = []
     cats = tree["pageProps"]["categories"]
@@ -44,16 +46,17 @@ def get_categories():
     return category_urls
 
 def parse_soup(soup):
-    """Get json data from soup object."""
+    """Get embedded json data from soup object."""
     tags = soup.find("script", {"id":"__NEXT_DATA__"})
     data = json.loads(tags.text)
     return data
 
-def get_company_reviews(company, stars):
+def get_company_reviews(company_reviews_url, rating):
     """Collects review text based on a company identifier and the number of stars a review is associated with. This is due to the fact that the script was initially designed to only collect ~*neutral*~ reviews, i.e 3 stars. A simple way to get all reviews is a for loop in main. 
     Returns... something.
     """
-    return None
+        
+    return "Specify what star rating a review should have."
 
 
 def __main__():
@@ -70,7 +73,7 @@ def __main__():
         category_soup = fetch(category)
         category_data = parse_soup(category_soup)
         n_pages = category_data["props"]["pageProps"]["seoData"]["maxPages"]
-        for i in range(1, n_pages):
+        for i in range(1, n_pages): # Iterate over number of category pages
             category_page = category + "?page=" + str(i)
             company_soup = fetch(category_page)
             company_data = parse_soup(company_soup)
@@ -85,19 +88,22 @@ def __main__():
             i += 1
         print("There are", str(len(category_specific_companies)), " companies in category\t", category_dir)
         
-        for c in category_specific_companies:
+        for c in category_specific_companies: # Iterate over companies in categories
             xxx = get_company_reviews(c, 3)
+            
             category_file = open("test/" + category_dir + ".csv", "a")
             print("\tProcessing company: ", c)
             # Collect company data
-            count_soup = fetch("https://se.trustpilot.com/review/" + c + "?stars=3")
-            count_data = parse_soup(count_soup)
-            count_tree = count_data["props"]
-            count_pages = count_tree["pageProps"]["filters"]["pagination"]["totalPages"]
-            print("Company ", c, " has ", str(count_pages), " pages of 3 star reviews associated with it.")
-            if count_pages > 1:
-                for page in range(1, count_pages):
-                    print("\tProcessing reviews from following URL: https://se.trustpilot.com/review/" + c + "?page=" + str(page) +"&stars=3")
+
+            for rating in range(1, 5): # Modify this line if you're interested in a secific category. If not, we iterate over all ratings.
+                count_soup = fetch("https://se.trustpilot.com/review/" + c + "?stars=" + str(rating))
+                count_data = parse_soup(count_soup)
+                count_tree = count_data["props"]
+                count_pages = count_tree["pageProps"]["filters"]["pagination"]["totalPages"]
+                print("\tCompany ", c, " has ", str(count_pages), " pages of ", str(rating), " star reviews associated with it.")
+                for page in range(1, count_pages+1):
+                    print(page)
+                    print("\tProcessing reviews from following URL: https://se.trustpilot.com/review/" + c + "?page=" + str(page) +"&stars=" + str(rating))
                     time.sleep(1)
                     review_soup = fetch("https://se.trustpilot.com/review/" + c + "?page=" + str(page) +"&stars=3")
                     review_data = parse_soup(review_soup)
@@ -105,27 +111,26 @@ def __main__():
                     review_tree = review_tree["reviews"]
                     review = review_tree[0]["text"]
                     #rating = review_tree[0]["rating"]
-                    rating = 3
                     data = review + "\t " + str(rating) + "\n"
                     #data = "\"" + review + "\"%%% " + str(rating) + "\n"
                     print("\t\tSaved review to list.") 
-                    #category_file.write(data)
-            elif count_pages == 1:
-                # If it's just one page
-                print("\tProcessing reviews from following URL: https://se.trustpilot.com/review/" + c + "?stars=3")
-                time.sleep(1)
-                review_soup = fetch("https://se.trustpilot.com/review/" + c + "?stars=3") # Specify rating if important here
-                review_data = parse_soup(review_soup)
-                review_tree = review_data["props"]["pageProps"]
-                review_tree = review_tree["reviews"]
-                review = review_tree[0]["text"]
-                rating = 3
-                #rating = review_tree[0]["rating"]
-                data = review + "\t" + str(rating) + "\n"
-                print("\t\tWrote review to file.") 
-                category_file.write(data)
-            else:
-                continue
+                    category_file.write(data)
+            #elif count_pages == 1:
+            #    # If it's just one page
+            #    print("\tProcessing reviews from following URL: https://se.trustpilot.com/review/" + c + "?stars=3")
+            #    time.sleep(1)
+            #    review_soup = fetch("https://se.trustpilot.com/review/" + c + "?stars=3") # Specify rating if important here
+            #    review_data = parse_soup(review_soup)
+            #    review_tree = review_data["props"]["pageProps"]
+            #    review_tree = review_tree["reviews"]
+            #    review = review_tree[0]["text"]
+            #    rating = 3
+            #    #rating = review_tree[0]["rating"]
+            #    data = review + "\t" + str(rating) + "\n"
+            #    print("\t\tWrote review to file.") 
+            #    category_file.write(data)
+            #else:
+            #    continue
     
 
 
