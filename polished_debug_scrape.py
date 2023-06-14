@@ -3,7 +3,6 @@ import os
 import time
 import json
 import requests
-import pandas as pd
 from bs4 import BeautifulSoup
 from retry_requests import retry
 
@@ -31,9 +30,6 @@ def get_categories():
     top_category_url = "https://se.trustpilot.com/categories"
     category_soup = fetch(top_category_url)
     data = parse_soup(category_soup)
-    #tags = category_soup.find("script", {"id":"__NEXT_DATA__"})
-    #data = json.loads(tags.text)
-
     tree = data["props"]
     all_categories = []
     cats = tree["pageProps"]["categories"]
@@ -50,14 +46,6 @@ def parse_soup(soup):
     tags = soup.find("script", {"id":"__NEXT_DATA__"})
     data = json.loads(tags.text)
     return data
-
-def get_company_reviews(company_reviews_url, rating):
-    """Collects review text based on a company identifier and the number of stars a review is associated with. This is due to the fact that the script was initially designed to only collect ~*neutral*~ reviews, i.e 3 stars. A simple way to get all reviews is a for loop in main. 
-    Returns... something.
-    """
-        
-    return "Specify what star rating a review should have."
-
 
 def __main__():
     categories = get_categories()
@@ -84,54 +72,43 @@ def __main__():
                     for j in v:
                         company_id = j["identifyingName"]
                         if company_id not in category_specific_companies:
-                            category_specific_companies.append(company_id) # category_specific_companies is a list like ["www.horsestuff.se", "dogtrip.se", "www.hundstyrka.se"]
+                            category_specific_companies.append(company_id)
+                            # category_specific_companies is a list like ["www.horsestuff.se", "dogtrip.se", "www.hundstyrka.se"]
             i += 1
         print("There are", str(len(category_specific_companies)), " companies in category\t", category_dir)
         
-        for c in category_specific_companies: # Iterate over companies in categories
-            xxx = get_company_reviews(c, 3)
-            
+        for c in category_specific_companies: # Iterate over companies in categories            
             category_file = open("test/" + category_dir + ".csv", "a")
             print("\tProcessing company: ", c)
             # Collect company data
 
             for rating in range(1, 5): # Modify this line if you're interested in a secific category. If not, we iterate over all ratings.
+                print("\t\tProcessing ", str(rating), " star reviews.")
                 count_soup = fetch("https://se.trustpilot.com/review/" + c + "?stars=" + str(rating))
                 count_data = parse_soup(count_soup)
                 count_tree = count_data["props"]
                 count_pages = count_tree["pageProps"]["filters"]["pagination"]["totalPages"]
-                print("\tCompany ", c, " has ", str(count_pages), " pages of ", str(rating), " star reviews associated with it.")
+                print("\t\t\tCompany ", c, " has ", str(count_pages), " pages of ", str(rating), " star reviews associated with it.")
                 for page in range(1, count_pages+1):
-                    print(page)
-                    print("\tProcessing reviews from following URL: https://se.trustpilot.com/review/" + c + "?page=" + str(page) +"&stars=" + str(rating))
+                    print("\t\t\tProcessing reviews from following URL: https://se.trustpilot.com/review/" + c + "?page=" + str(page) +"&stars=" + str(rating))
                     time.sleep(1)
-                    review_soup = fetch("https://se.trustpilot.com/review/" + c + "?page=" + str(page) +"&stars=3")
+                    review_soup = fetch("https://se.trustpilot.com/review/" + c + "?page=" + str(page) +"&stars=" + str(rating))
                     review_data = parse_soup(review_soup)
                     review_tree = review_data["props"]["pageProps"]
                     review_tree = review_tree["reviews"]
                     review = review_tree[0]["text"]
-                    #rating = review_tree[0]["rating"]
-                    data = review + "\t " + str(rating) + "\n"
-                    #data = "\"" + review + "\"%%% " + str(rating) + "\n"
-                    print("\t\tSaved review to list.") 
-                    category_file.write(data)
-            #elif count_pages == 1:
-            #    # If it's just one page
-            #    print("\tProcessing reviews from following URL: https://se.trustpilot.com/review/" + c + "?stars=3")
-            #    time.sleep(1)
-            #    review_soup = fetch("https://se.trustpilot.com/review/" + c + "?stars=3") # Specify rating if important here
-            #    review_data = parse_soup(review_soup)
-            #    review_tree = review_data["props"]["pageProps"]
-            #    review_tree = review_tree["reviews"]
-            #    review = review_tree[0]["text"]
-            #    rating = 3
-            #    #rating = review_tree[0]["rating"]
-            #    data = review + "\t" + str(rating) + "\n"
-            #    print("\t\tWrote review to file.") 
-            #    category_file.write(data)
-            #else:
-            #    continue
-    
 
+                    # Convert to real csv please
+                    data = review + "\t " + str(rating) + "\n"
+                    category_file.write(data)
+                    print("\t\t\tSaved review to file.")
+                    print()
+
+
+
+is_dir = os.path.exists("test")
+if not is_dir:
+    os.mkdir("test")
+    print("Data dir created.")
 
 __main__()
