@@ -1,112 +1,209 @@
 import os
-import pandas as pd
-import time
 import json
+import time
+import random
 import requests
 from bs4 import BeautifulSoup
 from retry_requests import retry
 
-# Minimal Trustpilot scraper
-# Outputs tsv file consisting of two columns: review, rating
+# Configuration
+MAX_REVIEWS_PER_CATEGORY = 5_000  # Max reviews per category
+# 1,000 per rating per category
+REVIEWS_PER_RATING_IN_CATEGORY = MAX_REVIEWS_PER_CATEGORY // 5
+TOTAL_REVIEWS_NEEDED = 50_000  # 10K per rating across all categories
+REVIEW_STORAGE = {1: [], 2: [], 3: [], 4: [], 5: []}
+
 
 def fetch(url):
-    """Get function with some native request throttling.
-    Inputs a url and returns a BeautifulSoup object.
-    """
+    """Fetch HTML from URL with retries and error handling."""
     session = requests.Session()
     session = retry(session, retries=3, backoff_factor=1)
-    result = session.get(url)
-    if result:
-        soup = BeautifulSoup(result.content, "html.parser")
-        return soup
-    else:
-        None
+    try:
+        result = session.get(url, timeout=10)
+        result.raise_for_status()
+        return BeautifulSoup(result.content, "html.parser")
+    except requests.exceptions.RequestException as e:
+        print(f"⚠️ Request failed: {url}\nError: {e}")
+        return None
 
-def get_categories():
-    """Get updated list of categories, i.e "Byggmaterial" or "Tandvård".
-    Returns a list of URLs, for example https://se.trustpilot.com/categories/architects_engineers
-    """
-    top_category_url = "https://se.trustpilot.com/categories"
-    category_soup = fetch(top_category_url)
-    data = parse_soup(category_soup)
-    tree = data["props"]
-    all_categories = []
-    cats = tree["pageProps"]["categories"]
-    for category in cats:
-        all_categories.append(category["categoryId"])
-    category_urls = []
-    for cat in all_categories:
-        category_url = top_category_url + "/" + cat
-        category_urls.append(category_url) # All category URLs collected from site
-    return category_urls
 
 def parse_soup(soup):
-    """Get embedded json data from soup object."""
-    tags = soup.find("script", {"id":"__NEXT_DATA__"})
-    data = json.loads(tags.text)
-    return data
+    """Extract JSON data from Trustpilot's embedded script tag."""
+    if not soup:
+        print("⚠️ Warning: Received None in parse_soup!")
+        return None
+
+    script_tag = soup.find("script", {"id": "__NEXT_DATA__"})
+    if not script_tag:
+        print("⚠️ Warning: No JSON data found in soup!")
+        return None
+
+    try:
+        return json.loads(script_tag.text)
+    except json.JSONDecodeError:
+        print("⚠️ Warning: JSON parsing failed!")
+        return None
+
+
+def get_categories():
+    """Get list of categories from Trustpilot."""
+    base_url = "https://se.trustpilot.com/categories"
+    category_soup = fetch(base_url)
+    if not category_soup:
+        return []
+
+    data = parse_soup(category_soup)
+    if not data:
+        return []
+
+    categories = data.get("props", {}).get(
+        "pageProps", {}).get("categories", [])
+    return [base_url + "/" + cat["categoryId"] for cat in categories]
+
+
+def get_companies_from_category(category_url):
+    """Fetch companies listed under a category."""
+    category_soup = fetch(category_url)
+    if not category_soup:
+        return []
+
+    category_data = parse_soup(category_soup)
+    if not category_data:
+        return []
+
+    business_units = category_data.get("props", {}).get(
+        "pageProps", {}).get("businessUnits", {})
+
+    company_ids = []
+    for v in business_units.values():
+        if isinstance(v, list):
+            company_ids.extend(j["identifyingName"]
+                               for j in v if "identifyingName" in j)
+
+    return company_ids
+
+
+def scrape_reviews(company_id, rating, category_review_count):
+    """Fetch reviews for a company at a specific star rating, ensuring a max per category."""
+    url = f"https://se.trustpilot.com/review/{company_id}?stars={rating}"
+    soup = fetch(url)
+    if not soup:
+        return []
+
+    data = parse_soup(soup)
+    if not data:
+        return []
+
+    total_pages = data.get("props", {}).get("pageProps", {}).get(
+        "filters", {}).get("pagination", {}).get("totalPages", 1)
+
+    collected_reviews = []
+    for page in range(1, min(total_pages + 1, 100)):  # Trustpilot caps at ~100 pages
+        if len(category_review_count[rating]) >= REVIEWS_PER_RATING_IN_CATEGORY:
+            break  # Stop collecting if we reached the category rating limit
+
+        print(
+            f"  Fetching {rating}-star reviews from {company_id}, page {page}")
+        time.sleep(1)
+
+        page_url = f"{url}&page={page}"
+        review_soup = fetch(page_url)
+        review_data = parse_soup(review_soup)
+        if not review_data:
+            continue
+
+        reviews = review_data.get("props", {}).get(
+            "pageProps", {}).get("reviews", [])
+        for review in reviews:
+            text = review.get("text", "").strip()
+
+            # Ignore one-word reviews
+            if len(text.split()) <= 1:
+                continue
+
+            review_link = page_url  # Generate the link for the review
+            category_review_count[rating].append(
+                (text, rating, review_link))  # Store reviews for category
+
+            # Stop collecting if we've reached the target per rating
+            if len(category_review_count[rating]) >= REVIEWS_PER_RATING_IN_CATEGORY:
+                break
+
+        if len(category_review_count[rating]) >= REVIEWS_PER_RATING_IN_CATEGORY:
+            break  # Stop fetching pages for this rating if category limit reached
+
+    return category_review_count
+
+# Main execution
+
 
 def __main__():
-    categories = get_categories()
-    # Limit to categories of interest by modifying get_categories function
+    all_categories = get_categories()
+    if not all_categories:
+        print("⚠️ No categories found. Exiting...")
+        return
 
-    for category in categories[0:1]:
-        dfs = []
-        # Category is for example https://se.trustpilot.com/categories/animals_pets
-        data = []
-        category_dir = category.split("/")
-        category_dir = category_dir[len(category_dir)-1]
-        print("Processing category: ", category_dir)
-        category_specific_companies = []
-        category_soup = fetch(category)
-        category_data = parse_soup(category_soup)
-        n_pages = category_data["props"]["pageProps"]["seoData"]["maxPages"]
-        for i in range(1, n_pages): # Iterate over number of category pages
-            category_page = category + "?page=" + str(i)
-            company_soup = fetch(category_page)
-            company_data = parse_soup(company_soup)
-            # Collect company name identifiers here
-            company_tree = company_data["props"]["pageProps"]["businessUnits"]
-            for k, v in company_tree.items():
-                if type(v) == list:
-                    for j in v:
-                        company_id = j["identifyingName"]
-                        if company_id not in category_specific_companies:
-                            category_specific_companies.append(company_id)
-                            # category_specific_companies is a list like ["www.horsestuff.se", "dogtrip.se", "www.hundstyrka.se"]
-            i += 1
-        print("There are", str(len(category_specific_companies)), " companies in category\t", category_dir)
-        
-        for c in category_specific_companies: # Iterate over companies in categories            
-            category_file = open("data/" + category_dir + ".tsv", "a") # Modify dir here
-            print("\tProcessing company: ", c)
-            # Collect company data
+    print(
+        f"✅ Found {len(all_categories)} categories. Randomizing selection...")
+    random.shuffle(all_categories)
 
-            for rating in range(1, 5): # Modify this line if you're interested in a secific category. If not, we iterate over all ratings.
-                print("\t\tProcessing ", str(rating), " star reviews.")
-                count_soup = fetch("https://se.trustpilot.com/review/" + c + "?stars=" + str(rating))
-                count_data = parse_soup(count_soup)
-                count_tree = count_data["props"]
-                count_pages = count_tree["pageProps"]["filters"]["pagination"]["totalPages"]
-                print("\t\t\tCompany ", c, " has ", str(count_pages), " pages of ", str(rating), " star reviews associated with it.")
-                for page in range(1, count_pages+1):
-                    print("\t\t\tProcessing reviews from following URL: https://se.trustpilot.com/review/" + c + "?page=" + str(page) +"&stars=" + str(rating))
-                    time.sleep(1)
-                    review_soup = fetch("https://se.trustpilot.com/review/" + c + "?page=" + str(page) +"&stars=" + str(rating))
-                    review_data = parse_soup(review_soup)
-                    review_tree = review_data["props"]["pageProps"]
-                    review_tree = review_tree["reviews"]
-                    review = review_tree[0]["text"]
-                    data = review + "\t " + str(rating) + "\n"
-                    category_file.write(data)
-                    print("\t\t\tSaved review to file.")
-                    print()
+    for category_url in all_categories:
+        if isinstance(REVIEW_STORAGE, dict) and sum(len(v) for v in REVIEW_STORAGE.values()) >= TOTAL_REVIEWS_NEEDED:
+            break  # Stop when we hit the dataset limit
+
+        print(f"\nProcessing category: {category_url.split('/')[-1]}")
+        companies = get_companies_from_category(category_url)
+        if not companies:
+            print("⚠️ No companies found in category. Skipping...")
+            continue
+
+        random.shuffle(companies)
+        # Track reviews per rating for this category
+        category_review_count = {1: [], 2: [], 3: [], 4: [], 5: []}
+
+        for company in companies:
+            if isinstance(category_review_count, dict) and sum(len(v) for v in category_review_count.values()) >= MAX_REVIEWS_PER_CATEGORY:
+                break  # Stop scraping this category when it reaches 5,000 reviews
+
+            print(f" Scraping company: {company}")
+
+            for rating in range(1, 6):
+                if len(category_review_count[rating]) >= REVIEWS_PER_RATING_IN_CATEGORY:
+                    continue  # Skip if this rating is already full
+
+                category_review_count = scrape_reviews(
+                    company, rating, category_review_count)
+
+                if isinstance(category_review_count, dict) and sum(len(v) for v in category_review_count.values()) >= MAX_REVIEWS_PER_CATEGORY:
+                    break  # Stop this category when 5,000 reviews reached
+
+        # Store collected reviews from this category into main REVIEW_STORAGE
+        for rating in range(1, 6):
+            REVIEW_STORAGE[rating].extend(category_review_count[rating])
+
+        if isinstance(category_review_count, dict):
+            print(
+                f"Reviews collected: {sum(len(v) for v in category_review_count.values())} / {MAX_REVIEWS_PER_CATEGORY}")
+
+            for r in range(1, 6):
+                print(
+                    f"   ⭐ {r}-star: {len(category_review_count[r])} reviews")
+        else:
+            print(
+                f"⚠️ ERROR: category_review_count is a {type(category_review_count)}, expected dict!")
+
+    print("\n✅ Finished scraping! Saving to file...")
+
+    os.makedirs("data", exist_ok=True)
+
+    with open("data/trustpilot_reviews.tsv", "w", encoding="utf-8") as f:
+        f.write("review\trating\treview_link\n")
+        for rating, reviews in REVIEW_STORAGE.items():
+            for text, _, link in reviews:
+                f.write(f"{text}\t{rating}\t{link}\n")
+
+    print("✅ Dataset saved as 'data/trustpilot_reviews.tsv'!")
 
 
-
-is_dir = os.path.exists("data")
-if not is_dir:
-    os.mkdir("data")
-    print("Data dir created.")
-
-__main__()
+if __name__ == "__main__":
+    __main__()
